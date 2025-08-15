@@ -4,12 +4,14 @@ from fastmcp import FastMCP
 from pdftk_tools import PDFtkTools
 from qpdf_tools import QPDFTools
 from utils import PDFUtils
+from text_extraction_tools import TextExtractionTools
 
 # Initialize tools
 mcp = FastMCP("PDF Tools Server")
 pdftk = PDFtkTools()
 qpdf = QPDFTools()
 utils = PDFUtils()
+text_extractor = TextExtractionTools()
 
 # Core PDF Operations
 @mcp.tool()
@@ -418,7 +420,7 @@ def get_server_status() -> dict:
             }
         },
         "default_directory": str(utils.default_dirs[0]),
-        "operations_count": 16
+        "operations_count": 20
     }
 
 # File Utility Operations
@@ -584,6 +586,235 @@ def count_pdfs_in_directory(directory_path: str = None) -> dict:
         "pdf_count": len(pdf_files),
         "files": file_info,
         "total_size_mb": round(sum(f["size_mb"] for f in file_info), 2)
+    }
+
+# Text Extraction and OCR Operations
+@mcp.tool()
+def extract_text_fast(input_file: str, pages: list[int] = None) -> dict:
+    """
+    Fast text extraction from PDF using PyMuPDF.
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+    
+    Returns:
+        Extracted text content with performance metrics
+    """
+    result = text_extractor.extract_text_fast(input_file, pages)
+    
+    if result.get("success") and not result.get("from_cache"):
+        # Open file if extraction was successful and not from cache
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+def extract_text_ocr(input_file: str, pages: list[int] = None, language: str = "eng", dpi: int = 300) -> dict:
+    """
+    OCR-based text extraction using Tesseract for scanned documents.
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+        language: OCR language code (default: eng)
+        dpi: Image resolution for OCR (default: 300)
+    
+    Returns:
+        OCR extracted text with confidence metrics
+    """
+    result = text_extractor.extract_text_ocr(input_file, pages, language, dpi)
+    
+    if result.get("success") and not result.get("from_cache"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+def extract_text_smart(input_file: str, pages: list[int] = None, ocr_fallback: bool = True) -> dict:
+    """
+    Smart text extraction with automatic method selection (fast → layout-aware → OCR).
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+        ocr_fallback: Use OCR if direct text extraction fails (default: True)
+    
+    Returns:
+        Extracted text using the best available method
+    """
+    result = text_extractor.extract_text_smart(input_file, pages, ocr_fallback)
+    
+    if result.get("success") and not result.get("from_cache"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+def extract_text_layout_aware(input_file: str, pages: list[int] = None) -> dict:
+    """
+    Layout-aware text extraction with table detection using pdfplumber.
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+    
+    Returns:
+        Extracted text with layout and table information
+    """
+    result = text_extractor.extract_text_layout_aware(input_file, pages)
+    
+    if result.get("success") and not result.get("from_cache"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+def search_pdf_content(input_file: str, query: str, case_sensitive: bool = False, whole_words: bool = False) -> dict:
+    """
+    Search for text content within PDF document.
+    
+    Args:
+        input_file: Input PDF file path
+        query: Search query text
+        case_sensitive: Perform case-sensitive search (default: False)
+        whole_words: Match whole words only (default: False)
+    
+    Returns:
+        Search results with page locations and context
+    """
+    return text_extractor.search_text_content(input_file, query, case_sensitive, whole_words)
+
+@mcp.tool()
+def analyze_pdf_content(input_file: str, max_chars: int = 100000) -> dict:
+    """
+    Analyze PDF content for LLM consumption with smart chunking and summaries.
+    
+    Args:
+        input_file: Input PDF file path
+        max_chars: Maximum characters to extract (default: 100000)
+    
+    Returns:
+        Structured content analysis ready for LLM processing
+    """
+    result = text_extractor.analyze_content_for_llm(input_file, max_chars)
+    
+    if result.get("success"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+# LLM OCR Operations
+@mcp.tool()
+async def extract_text_llm_ocr(input_file: str, pages: list[int] = None, provider: str = "openrouter", 
+                              model: str = "google/gemini-2.5-flash-lite-preview-06-17", custom_prompt: str = None) -> dict:
+    """
+    Extract text using LLM-based OCR (OpenRouter with Gemini 2.5 Flash).
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+        provider: LLM provider to use ("openrouter", "mistral", "http")
+        model: Model to use for OCR (default: "google/gemini-2.5-flash-lite-preview-06-17")
+        custom_prompt: Custom OCR prompt for specific extraction needs
+    
+    Returns:
+        LLM OCR extracted text with token usage and confidence metrics
+    """
+    result = await text_extractor.extract_text_llm_ocr(input_file, pages, provider, model, custom_prompt)
+    
+    if result.get("success") and not result.get("from_cache"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+async def extract_text_hybrid_smart(input_file: str, pages: list[int] = None, 
+                                   llm_provider: str = "openrouter") -> dict:
+    """
+    Smart hybrid text extraction: fast methods for simple pages, LLM OCR for complex pages.
+    
+    Args:
+        input_file: Input PDF file path
+        pages: Specific pages to extract (optional, defaults to all pages)
+        llm_provider: LLM provider for complex pages ("openrouter", "mistral", "http")
+    
+    Returns:
+        Hybrid extraction results with cost optimization and method breakdown
+    """
+    result = await text_extractor.extract_text_hybrid_smart(input_file, pages, llm_provider)
+    
+    if result.get("success"):
+        utils.open_file_externally(utils.resolve_path(input_file))
+    
+    return result
+
+@mcp.tool()
+def debug_environment() -> dict:
+    """
+    Debug environment variables and configuration.
+    
+    Returns:
+        dict: Environment debugging information
+    """
+    import os
+    
+    llm_vars = {}
+    for key, value in os.environ.items():
+        if any(provider in key.upper() for provider in ['MISTRAL', 'OPENROUTER']):
+            llm_vars[key] = value[:10] + "..." if len(value) > 10 else value
+    
+    return {
+        "success": True,
+        "openrouter_api_key_set": bool(os.getenv("OPENROUTER_API_KEY")),
+        "openrouter_api_key_length": len(os.getenv("OPENROUTER_API_KEY", "")),
+        "openrouter_ocr_enabled": os.getenv("OPENROUTER_OCR_ENABLED"),
+        "mistral_api_key_set": bool(os.getenv("MISTRAL_API_KEY")),
+        "mistral_api_key_length": len(os.getenv("MISTRAL_API_KEY", "")),
+        "mistral_ocr_enabled": os.getenv("MISTRAL_OCR_ENABLED"),
+        "llm_environment_vars": llm_vars,
+        "all_env_count": len(os.environ),
+        "working_directory": os.getcwd()
+    }
+
+@mcp.tool()
+def get_llm_ocr_status() -> dict:
+    """
+    Check LLM OCR providers status and configuration.
+    
+    Returns:
+        dict: LLM OCR availability and configuration status
+    """
+    import os
+    
+    return {
+        "success": True,
+        "llm_ocr_available": len(text_extractor.llm_ocr_manager.get_available_providers()) > 0,
+        "available_providers": text_extractor.llm_ocr_manager.get_available_providers(),
+        "configuration": {
+            "openrouter_api_key_set": bool(os.getenv("OPENROUTER_API_KEY")),
+            "openrouter_ocr_enabled": os.getenv("OPENROUTER_OCR_ENABLED", "false").lower() == "true",
+            "mistral_api_key_set": bool(os.getenv("MISTRAL_API_KEY")),
+            "mistral_ocr_enabled": os.getenv("MISTRAL_OCR_ENABLED", "false").lower() == "true",
+            "custom_ocr_api_set": bool(os.getenv("CUSTOM_OCR_API_URL"))
+        },
+        "setup_instructions": {
+            "openrouter": [
+                "Set OPENROUTER_API_KEY environment variable",
+                "Set OPENROUTER_OCR_ENABLED=true", 
+                "Get API key from: https://openrouter.ai/keys",
+                "Uses Gemini 2.5 Flash for high-quality OCR"
+            ],
+            "mistral": [
+                "Set MISTRAL_API_KEY environment variable",
+                "Set MISTRAL_OCR_ENABLED=true",
+                "Install: pip install mistralai"
+            ],
+            "custom": [
+                "Set CUSTOM_OCR_API_URL environment variable", 
+                "Set API key in MISTRAL_API_KEY (reused for auth)"
+            ]
+        }
     }
 
 if __name__ == "__main__":
